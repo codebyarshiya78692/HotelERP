@@ -1,47 +1,65 @@
 {% extends "base.html" %}
 
 {% block title %}
-Waiter Dashboard | IDDS
+    Waiter Dashboard | HotelERP
 {% endblock %}
+
 
 {% block content %}
 
-<section class="page-section">
+<section class="page-shell">
 
     <div class="container">
+
 
         <!-- ==================================================
              HEADER
              ================================================== -->
 
-        <div class="page-heading reveal">
+        <div class="page-header reveal">
 
-            <p class="eyebrow">
-                SERVICE OPERATIONS
-            </p>
+            <div>
 
-            <h1>
-                Waiter Dashboard
-            </h1>
+                <p class="eyebrow">
+                    IDDS SERVICE OPERATIONS
+                </p>
 
-            <p>
-                Serve food prepared by the kitchen and handle
-                customer service requests.
-            </p>
+                <h1>
+                    Waiter Dashboard
+                </h1>
+
+                <p>
+                    Manage ready food orders and customer
+                    service requests assigned to you.
+                </p>
+
+            </div>
+
+
+            <div class="header-actions">
+
+                <a
+                    href="{% url 'accounts:logout' %}"
+                    class="btn btn-secondary"
+                >
+                    Logout
+                </a>
+
+            </div>
 
         </div>
 
 
         <!-- ==================================================
-             SIMPLE SUMMARY
+             SUMMARY
              ================================================== -->
 
-        <div class="kitchen-summary-grid">
+        <div class="summary-grid reveal">
 
             <div class="summary-card">
 
                 <span class="summary-label">
-                    READY TO SERVE
+                    READY ORDERS
                 </span>
 
                 <strong>
@@ -49,7 +67,7 @@ Waiter Dashboard | IDDS
                 </strong>
 
                 <small>
-                    Food from kitchen
+                    Food waiting for waiter service
                 </small>
 
             </div>
@@ -66,7 +84,24 @@ Waiter Dashboard | IDDS
                 </strong>
 
                 <small>
-                    Need your attention
+                    New requests waiting for a waiter
+                </small>
+
+            </div>
+
+
+            <div class="summary-card">
+
+                <span class="summary-label">
+                    LOGGED-IN WAITER
+                </span>
+
+                <strong>
+                    {{ waiter.username }}
+                </strong>
+
+                <small>
+                    Your independently assigned work
                 </small>
 
             </div>
@@ -93,8 +128,9 @@ Waiter Dashboard | IDDS
                     </h2>
 
                     <p>
-                        Only orders marked <strong>Ready</strong>
-                        by the Chef appear here.
+                        New READY orders are available to all
+                        waiters. Once one waiter takes an order,
+                        it becomes visible only to that waiter.
                     </p>
 
                 </div>
@@ -129,6 +165,10 @@ Waiter Dashboard | IDDS
                                 </th>
 
                                 <th>
+                                    Assigned Waiter
+                                </th>
+
+                                <th>
                                     Action
                                 </th>
 
@@ -144,20 +184,26 @@ Waiter Dashboard | IDDS
                                 <tr>
 
                                     <td>
+
                                         <strong>
                                             #{{ order.id }}
                                         </strong>
+
                                     </td>
 
 
                                     <td>
+
                                         Table
                                         {{ order.session.table.table_number }}
+
                                     </td>
 
 
                                     <td>
+
                                         {{ order.session.customer_name|default:"Guest" }}
+
                                     </td>
 
 
@@ -179,21 +225,70 @@ Waiter Dashboard | IDDS
 
                                     <td>
 
-                                        <form
-                                            method="post"
-                                            action="{% url 'accounts:waiter_serve_order' order.id %}"
-                                        >
+                                        {% if order.assigned_waiter %}
 
-                                            {% csrf_token %}
+                                            {{ order.assigned_waiter.username }}
 
-                                            <button
-                                                type="submit"
-                                                class="btn btn-primary"
+                                        {% else %}
+
+                                            Unassigned
+
+                                        {% endif %}
+
+                                    </td>
+
+
+                                    <td>
+
+                                        {% if order.assigned_waiter_id %}
+
+                                            <div class="assigned-label">
+
+                                                Taken by
+                                                {{ order.assigned_waiter.username }}
+
+                                            </div>
+
+
+                                            {% if order.assigned_waiter_id == waiter.id %}
+
+                                                <form
+                                                    method="post"
+                                                    action="{% url 'accounts:waiter_serve_order' order.id %}"
+                                                >
+
+                                                    {% csrf_token %}
+
+                                                    <button
+                                                        type="submit"
+                                                        class="btn btn-primary"
+                                                    >
+                                                        Serve Food
+                                                    </button>
+
+                                                </form>
+
+                                            {% endif %}
+
+                                        {% else %}
+
+                                            <form
+                                                method="post"
+                                                action="{% url 'accounts:waiter_take_order' order.id %}"
                                             >
-                                                Serve Food
-                                            </button>
 
-                                        </form>
+                                                {% csrf_token %}
+
+                                                <button
+                                                    type="submit"
+                                                    class="btn btn-primary"
+                                                >
+                                                    Take Order
+                                                </button>
+
+                                            </form>
+
+                                        {% endif %}
 
                                     </td>
 
@@ -282,6 +377,10 @@ Waiter Dashboard | IDDS
                                 </th>
 
                                 <th>
+                                    Assigned Waiter
+                                </th>
+
+                                <th>
                                     Status
                                 </th>
 
@@ -320,12 +419,31 @@ Waiter Dashboard | IDDS
 
 
                                     <td>
+
                                         {{ service_request.message|default:"—" }}
+
                                     </td>
 
 
                                     <td>
+
                                         {{ service_request.requested_at|date:"d M Y, h:i A" }}
+
+                                    </td>
+
+
+                                    <td>
+
+                                        {% if service_request.assigned_waiter %}
+
+                                            {{ service_request.assigned_waiter.username }}
+
+                                        {% else %}
+
+                                            Unassigned
+
+                                        {% endif %}
+
                                     </td>
 
 
@@ -512,6 +630,14 @@ Waiter Dashboard | IDDS
 
     .status-accepted {
         background: rgba(107, 79, 58, 0.12);
+        color: var(--color-primary);
+    }
+
+
+    .assigned-label {
+        margin-bottom: 0.45rem;
+        font-size: 0.78rem;
+        font-weight: 700;
         color: var(--color-primary);
     }
 

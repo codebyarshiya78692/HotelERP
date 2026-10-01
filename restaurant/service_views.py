@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
@@ -11,22 +12,19 @@ from orders.models import DiningSession, ServiceRequest
 # ============================================================
 
 def _get_customer_session(request):
-    """
-    Return the active dining session belonging to the current
-    browser session.
 
-    Customers using the restaurant's QR/table flow are identified
-    through the dining_session_id stored in Django's session.
-    """
-
-    session_id = request.session.get("dining_session_id")
+    session_id = request.session.get(
+        "dining_session_id"
+    )
 
     if not session_id:
         return None
 
     return (
         DiningSession.objects
-        .select_related("table")
+        .select_related(
+            "table"
+        )
         .filter(
             id=session_id,
             status="active",
@@ -40,16 +38,6 @@ def _get_customer_session(request):
 # ============================================================
 
 def _staff_role(request):
-    """
-    Identify the operational role of the current user.
-
-    Roles:
-        admin
-        chef
-        waiter
-        staff
-        anonymous
-    """
 
     user = request.user
 
@@ -62,21 +50,23 @@ def _staff_role(request):
     if user.groups.filter(
         name__iexact="Chef"
     ).exists():
+
         return "chef"
 
     if user.groups.filter(
         name__iexact="Waiter"
     ).exists():
+
         return "waiter"
 
     return "staff"
 
 
+# ============================================================
+# STAFF ACCESS
+# ============================================================
+
 def _staff_only(request):
-    """
-    Return True when the current user is an authenticated
-    staff member.
-    """
 
     return (
         request.user.is_authenticated
@@ -85,25 +75,17 @@ def _staff_only(request):
 
 
 def _allowed_request_types(request):
-    """
-    Return the service-request types visible to each role.
 
-    Admin:
-        Everything
+    role = _staff_role(
+        request
+    )
 
-    Chef:
-        Food/custom requests only
-
-    Waiter:
-        Water, cutlery and bill only
-
-    Other staff:
-        No operational service requests
-    """
-
-    role = _staff_role(request)
+    # --------------------------------------------------------
+    # ADMIN
+    # --------------------------------------------------------
 
     if role == "admin":
+
         return [
             "water",
             "cutlery",
@@ -112,13 +94,28 @@ def _allowed_request_types(request):
             "other",
         ]
 
+    # --------------------------------------------------------
+    # CHEF / KITCHEN
+    #
+    # Customer assistance/custom requirements go directly
+    # to the kitchen.
+    # --------------------------------------------------------
+
     if role == "chef":
+
         return [
             "assistance",
             "other",
         ]
 
+    # --------------------------------------------------------
+    # WAITER
+    #
+    # Physical table-service requirements go to Waiter.
+    # --------------------------------------------------------
+
     if role == "waiter":
+
         return [
             "water",
             "cutlery",
@@ -133,9 +130,6 @@ def _allowed_request_types(request):
 # ============================================================
 
 def _staff_access_denied(request):
-    """
-    Render a consistent access-denied page for non-staff users.
-    """
 
     return render(
         request,
@@ -149,35 +143,30 @@ def _staff_access_denied(request):
 # ============================================================
 
 def service_requests(request):
-    """
-    Customer service-request page.
-
-    Customers can request:
-        - Water
-        - Cutlery
-        - Assistance
-        - Bill
-        - Other
-
-    Staff members are shown only the requests appropriate
-    for their role.
-    """
 
     if (
         request.user.is_authenticated
         and request.user.is_staff
     ):
-        return staff_service_requests(request)
 
-    dining_session = _get_customer_session(request)
+        return staff_service_requests(
+            request
+        )
+
+    dining_session = _get_customer_session(
+        request
+    )
 
     if dining_session is None:
+
         messages.error(
             request,
             "Please select a table before requesting service.",
         )
 
-        return redirect("table_selection")
+        return redirect(
+            "table_selection"
+        )
 
     requests = (
         ServiceRequest.objects
@@ -187,6 +176,7 @@ def service_requests(request):
         .select_related(
             "session",
             "session__table",
+            "assigned_waiter",
         )
         .order_by(
             "-requested_at",
@@ -209,23 +199,27 @@ def service_requests(request):
 # ============================================================
 
 def create_service_request(request):
-    """
-    Create a new service request for the customer's active
-    dining session.
-    """
 
     if request.method != "POST":
-        return redirect("service_requests")
 
-    dining_session = _get_customer_session(request)
+        return redirect(
+            "service_requests"
+        )
+
+    dining_session = _get_customer_session(
+        request
+    )
 
     if dining_session is None:
+
         messages.error(
             request,
             "Your dining session is no longer active.",
         )
 
-        return redirect("table_selection")
+        return redirect(
+            "table_selection"
+        )
 
     request_type = request.POST.get(
         "request_type",
@@ -243,15 +237,20 @@ def create_service_request(request):
     }
 
     if request_type not in valid_request_types:
+
         messages.error(
             request,
             "Please select a valid service request.",
         )
 
-        return redirect("service_requests")
+        return redirect(
+            "service_requests"
+        )
 
-    # Prevent accidentally creating many identical
-    # open requests.
+    # --------------------------------------------------------
+    # PREVENT DUPLICATE ACTIVE REQUESTS
+    # --------------------------------------------------------
+
     existing_request = (
         ServiceRequest.objects
         .filter(
@@ -266,12 +265,15 @@ def create_service_request(request):
     )
 
     if existing_request:
+
         messages.info(
             request,
             "You already have an active request of this type.",
         )
 
-        return redirect("service_requests")
+        return redirect(
+            "service_requests"
+        )
 
     ServiceRequest.objects.create(
         session=dining_session,
@@ -280,12 +282,41 @@ def create_service_request(request):
         status="requested",
     )
 
-    messages.success(
-        request,
-        "Your service request has been sent to the staff.",
-    )
+    # --------------------------------------------------------
+    # ROUTING MESSAGE
+    # --------------------------------------------------------
 
-    return redirect("service_requests")
+    if request_type in [
+        "water",
+        "cutlery",
+        "bill",
+    ]:
+
+        messages.success(
+            request,
+            "Your request has been sent to the waiter.",
+        )
+
+    elif request_type in [
+        "assistance",
+        "other",
+    ]:
+
+        messages.success(
+            request,
+            "Your request has been sent to the kitchen.",
+        )
+
+    else:
+
+        messages.success(
+            request,
+            "Your service request has been sent to staff.",
+        )
+
+    return redirect(
+        "service_requests"
+    )
 
 
 # ============================================================
@@ -294,30 +325,24 @@ def create_service_request(request):
 
 @login_required
 def staff_service_requests(request):
-    """
-    Staff dashboard for incoming customer service requests.
 
-    Visibility is role-specific.
+    if not _staff_only(
+        request
+    ):
 
-    Admin:
-        All requests
+        return _staff_access_denied(
+            request
+        )
 
-    Chef:
-        Assistance and Other
+    allowed_types = _allowed_request_types(
+        request
+    )
 
-    Waiter:
-        Water, Cutlery and Bill
-    """
-
-    if not _staff_only(request):
-        return _staff_access_denied(request)
-
-    allowed_types = _allowed_request_types(request)
-
-    # If the user is staff but does not have a recognised
-    # operational role, do not expose customer requests.
     if not allowed_types:
-        return _staff_access_denied(request)
+
+        return _staff_access_denied(
+            request
+        )
 
     service_request_list = (
         ServiceRequest.objects
@@ -327,22 +352,32 @@ def staff_service_requests(request):
         .select_related(
             "session",
             "session__table",
+            "assigned_waiter",
         )
         .order_by(
             "-requested_at",
         )
     )
 
-    requested_requests = service_request_list.filter(
-        status="requested",
+    requested_requests = (
+        service_request_list
+        .filter(
+            status="requested",
+        )
     )
 
-    accepted_requests = service_request_list.filter(
-        status="accepted",
+    accepted_requests = (
+        service_request_list
+        .filter(
+            status="accepted",
+        )
     )
 
-    completed_requests = service_request_list.filter(
-        status="completed",
+    completed_requests = (
+        service_request_list
+        .filter(
+            status="completed",
+        )
     )
 
     return render(
@@ -365,27 +400,40 @@ def staff_service_requests(request):
 # ============================================================
 
 @login_required
-def accept_service_request(request, request_id):
-    """
-    Staff accepts an incoming service request.
+@transaction.atomic
+def accept_service_request(
+    request,
+    request_id,
+):
 
-    The request must belong to the types allowed for the
-    current staff role.
-    """
+    if not _staff_only(
+        request
+    ):
 
-    if not _staff_only(request):
-        return _staff_access_denied(request)
+        return _staff_access_denied(
+            request
+        )
 
     if request.method != "POST":
-        return redirect("staff_service_requests")
 
-    allowed_types = _allowed_request_types(request)
+        return redirect(
+            "staff_service_requests"
+        )
+
+    allowed_types = _allowed_request_types(
+        request
+    )
 
     if not allowed_types:
-        return _staff_access_denied(request)
+
+        return _staff_access_denied(
+            request
+        )
 
     service_request = get_object_or_404(
-        ServiceRequest.objects.select_related(
+        ServiceRequest.objects
+        .select_for_update()
+        .select_related(
             "session",
             "session__table",
         ),
@@ -394,21 +442,61 @@ def accept_service_request(request, request_id):
     )
 
     if service_request.status != "requested":
+
         messages.info(
             request,
-            "This service request is no longer waiting "
-            "for acceptance.",
+            "This service request is no longer waiting for acceptance.",
         )
 
-        return redirect("staff_service_requests")
+        return redirect(
+            "staff_service_requests"
+        )
+
+    # --------------------------------------------------------
+    # WAITER REQUEST
+    # --------------------------------------------------------
+
+    if (
+        _staff_role(request) == "waiter"
+        and service_request.assigned_waiter_id
+        is not None
+    ):
+
+        messages.warning(
+            request,
+            "This request has already been taken by another waiter.",
+        )
+
+        return redirect(
+            "staff_service_requests"
+        )
 
     service_request.status = "accepted"
 
-    service_request.save(
-        update_fields=[
-            "status",
-        ],
-    )
+    # --------------------------------------------------------
+    # ASSIGN WAITER
+    # --------------------------------------------------------
+
+    if _staff_role(request) == "waiter":
+
+        service_request.assigned_waiter = (
+            request.user
+        )
+
+        service_request.save(
+            update_fields=[
+                "status",
+                "assigned_waiter",
+            ],
+        )
+
+    else:
+
+        service_request.save(
+            update_fields=[
+                "status",
+            ],
+        )
 
     messages.success(
         request,
@@ -419,49 +507,82 @@ def accept_service_request(request, request_id):
         ),
     )
 
-    return redirect("staff_service_requests")
+    return redirect(
+        "staff_service_requests"
+    )
+
+
 # ============================================================
 # COMPLETE SERVICE REQUEST
 # ============================================================
 
 @login_required
-def complete_service_request(request, request_id):
-    """
-    Staff completes an accepted service request.
+@transaction.atomic
+def complete_service_request(
+    request,
+    request_id,
+):
 
-    Only requests belonging to the current user's role
-    can be completed.
-    """
+    if not _staff_only(
+        request
+    ):
 
-    if not _staff_only(request):
-        return _staff_access_denied(request)
+        return _staff_access_denied(
+            request
+        )
 
     if request.method != "POST":
-        return redirect("staff_service_requests")
 
-    allowed_types = _allowed_request_types(request)
+        return redirect(
+            "staff_service_requests"
+        )
+
+    allowed_types = _allowed_request_types(
+        request
+    )
 
     if not allowed_types:
-        return _staff_access_denied(request)
+
+        return _staff_access_denied(
+            request
+        )
+
+    filters = {
+        "id": request_id,
+        "request_type__in": allowed_types,
+    }
+
+    # A waiter can complete only a request assigned
+    # to that waiter.
+    if _staff_role(request) == "waiter":
+
+        filters[
+            "assigned_waiter"
+        ] = request.user
 
     service_request = get_object_or_404(
-        ServiceRequest.objects.select_related(
+        ServiceRequest.objects
+        .select_for_update()
+        .select_related(
             "session",
             "session__table",
         ),
-        id=request_id,
-        request_type__in=allowed_types,
+        **filters,
     )
 
     if service_request.status != "accepted":
+
         messages.info(
             request,
             "Only accepted service requests can be completed.",
         )
 
-        return redirect("staff_service_requests")
+        return redirect(
+            "staff_service_requests"
+        )
 
     service_request.status = "completed"
+
     service_request.completed_at = timezone.now()
 
     service_request.save(
@@ -474,13 +595,15 @@ def complete_service_request(request, request_id):
     messages.success(
         request,
         (
-            f"Service request for Table "
+            f"Request for Table "
             f"{service_request.session.table.table_number} "
             "has been completed."
         ),
     )
 
-    return redirect("staff_service_requests")
+    return redirect(
+        "staff_service_requests"
+    )
 
 
 # ============================================================
@@ -488,26 +611,35 @@ def complete_service_request(request, request_id):
 # ============================================================
 
 @login_required
-def staff_service_request_detail(request, request_id):
-    """
-    Staff-only detail page for one service request.
+def staff_service_request_detail(
+    request,
+    request_id,
+):
 
-    The request must belong to the current user's allowed
-    request types.
-    """
+    if not _staff_only(
+        request
+    ):
 
-    if not _staff_only(request):
-        return _staff_access_denied(request)
+        return _staff_access_denied(
+            request
+        )
 
-    allowed_types = _allowed_request_types(request)
+    allowed_types = _allowed_request_types(
+        request
+    )
 
     if not allowed_types:
-        return _staff_access_denied(request)
+
+        return _staff_access_denied(
+            request
+        )
 
     service_request = get_object_or_404(
-        ServiceRequest.objects.select_related(
+        ServiceRequest.objects
+        .select_related(
             "session",
             "session__table",
+            "assigned_waiter",
         ),
         id=request_id,
         request_type__in=allowed_types,

@@ -1,63 +1,67 @@
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
-from orders.models import DiningSession, Order, ServiceRequest
+
+from orders.models import (
+    DiningSession,
+    Order,
+    ServiceRequest,
+)
+
+from restaurant.models import (
+    DiningTable,
+    MenuCategory,
+    MenuItem,
+)
 
 
 # ============================================================
 # ROLE HELPERS
 # ============================================================
 
+
 def _is_chef(user):
     """
-    Return True when the authenticated user belongs
-    to the Chef group.
+    Return True when the logged-in user belongs to the Chef group.
     """
-
-    if not user.is_authenticated:
+    if not user or not user.is_authenticated:
         return False
 
-    return (
-        user.groups
-        .filter(name__iexact="chef")
-        .exists()
-    )
+    return user.groups.filter(name__iexact="Chef").exists()
 
 
 def _is_waiter(user):
     """
-    Return True when the authenticated user belongs
-    to the Waiter group.
+    Return True when the logged-in user belongs to the Waiter group.
     """
-
-    if not user.is_authenticated:
+    if not user or not user.is_authenticated:
         return False
 
-    return (
-        user.groups
-        .filter(name__iexact="waiter")
-        .exists()
-    )
+    return user.groups.filter(name__iexact="Waiter").exists()
 
 
 def _staff_role(user):
     """
-    Determine the staff role for the authenticated user.
+    Determine the application role for the logged-in user.
 
     Priority:
-        1. Superuser -> admin
-        2. Chef group -> chef
-        3. Waiter group -> waiter
-        4. Username fallback for demo accounts
-        5. Other staff -> staff
-        6. Normal user -> customer
+        1. Superuser
+        2. Chef group
+        3. Waiter group
+        4. Username containing chef
+        5. Username containing waiter
+        6. Other staff
+        7. Customer
     """
 
-    if not user.is_authenticated:
-        return "anonymous"
+    if not user or not user.is_authenticated:
+        return "customer"
 
     if user.is_superuser:
         return "admin"
@@ -68,7 +72,7 @@ def _staff_role(user):
     if _is_waiter(user):
         return "waiter"
 
-    username = user.username.lower()
+    username = (user.username or "").lower()
 
     if "chef" in username:
         return "chef"
@@ -83,228 +87,45 @@ def _staff_role(user):
 
 
 # ============================================================
-# LOGIN
+# LOGIN / LOGOUT
 # ============================================================
+
 
 def customer_login(request):
     """
-    Unified IDDS login.
+    Unified login page.
 
-    Customers are sent into the digital dining flow.
-
-    Staff are automatically sent to their role-specific
-    dashboard:
-
-        Admin  -> Django Admin
-        Chef   -> Kitchen Dashboard
-        Waiter -> Waiter Dashboard
+    Customers, chefs and waiters all use the same login form.
+    The user's role determines the dashboard after successful login.
     """
 
     if request.user.is_authenticated:
-
-        return _redirect_after_login(
-            request.user
-        )
-
-    if request.method == "POST":
-
-        username = (
-            request.POST
-            .get("username", "")
-            .strip()
-        )
-
-        password = request.POST.get(
-            "password",
-            "",
-        )
-
-        user = authenticate(
-            request,
-            username=username,
-            password=password,
-        )
-
-        if user is not None:
-
-            if not user.is_active:
-
-                messages.error(
-                    request,
-                    "This account is inactive.",
-                )
-
-                return render(
-                    request,
-                    "accounts/login.html",
-                )
-
-            login(
-                request,
-                user,
-            )
-
-            return _redirect_after_login(
-                user
-            )
-
-        messages.error(
-            request,
-            "Invalid username or password. Please try again.",
-        )
-
-    return render(
-        request,
-        "accounts/login.html",
-    )
-
-
-def _redirect_after_login(user):
-    """
-    Central login-routing function.
-    """
-
-    role = _staff_role(user)
-
-    if role == "admin":
-        return redirect("/admin/")
-
-    if role == "chef":
-        return redirect("kitchen:dashboard")
-
-    if role == "waiter":
-        return redirect("accounts:waiter_dashboard")
-
-    if role == "staff":
-        return redirect("accounts:staff_dashboard")
-
-    return redirect("table_selection")
-
-
-# ============================================================
-# CHEF LOGIN
-# ============================================================
-
-def chef_login(request):
-    """
-    Dedicated Chef login.
-
-    Only users belonging to the Chef group, or the existing
-    Chef demo-account fallback, can enter the kitchen dashboard.
-    """
-
-    if request.user.is_authenticated:
-
         role = _staff_role(request.user)
 
         if role == "chef":
-            return redirect(
-                "kitchen:dashboard"
-            )
-
-        logout(request)
-
-    if request.method == "POST":
-
-        username = (
-            request.POST
-            .get("username", "")
-            .strip()
-        )
-
-        password = request.POST.get(
-            "password",
-            "",
-        )
-
-        user = authenticate(
-            request,
-            username=username,
-            password=password,
-        )
-
-        if user is not None:
-
-            if not user.is_active:
-
-                messages.error(
-                    request,
-                    "This account is inactive.",
-                )
-
-                return render(
-                    request,
-                    "accounts/login.html",
-                    {
-                        "login_role": "chef",
-                    },
-                )
-
-            if _staff_role(user) == "chef":
-
-                login(
-                    request,
-                    user,
-                )
-
-                messages.success(
-                    request,
-                    "Welcome to the IDDS Kitchen Dashboard.",
-                )
-
-                return redirect(
-                    "kitchen:dashboard"
-                )
-
-        messages.error(
-            request,
-            "This account is not registered as a Chef.",
-        )
-
-    return render(
-        request,
-        "accounts/login.html",
-        {
-            "login_role": "chef",
-        },
-    )
-
-
-# ============================================================
-# WAITER LOGIN
-# ============================================================
-
-def waiter_login(request):
-    """
-    Dedicated Waiter login.
-
-    Only users belonging to the Waiter group, or the existing
-    Waiter demo-account fallback, can enter the waiter dashboard.
-    """
-
-    if request.user.is_authenticated:
-
-        role = _staff_role(request.user)
+            return redirect("kitchen:dashboard")
 
         if role == "waiter":
-            return redirect(
-                "accounts:waiter_dashboard"
-            )
+            return redirect("accounts:waiter_dashboard")
 
-        logout(request)
+        if role in ("admin", "staff"):
+            return redirect("accounts:staff_dashboard")
+
+        return redirect("accounts:dashboard")
 
     if request.method == "POST":
+        username = request.POST.get("username", "").strip()
+        password = request.POST.get("password", "")
 
-        username = (
-            request.POST
-            .get("username", "")
-            .strip()
-        )
-
-        password = request.POST.get(
-            "password",
-            "",
-        )
+        if not username or not password:
+            messages.error(
+                request,
+                "Please enter both username and password.",
+            )
+            return render(
+                request,
+                "accounts/login.html",
+            )
 
         user = authenticate(
             request,
@@ -312,71 +133,76 @@ def waiter_login(request):
             password=password,
         )
 
-        if user is not None:
+        if user is None:
+            messages.error(
+                request,
+                "Invalid username or password.",
+            )
+            return render(
+                request,
+                "accounts/login.html",
+            )
 
-            if not user.is_active:
+        if not user.is_active:
+            messages.error(
+                request,
+                "This account is inactive.",
+            )
+            return render(
+                request,
+                "accounts/login.html",
+            )
 
-                messages.error(
-                    request,
-                    "This account is inactive.",
-                )
+        login(request, user)
 
-                return render(
-                    request,
-                    "accounts/login.html",
-                    {
-                        "login_role": "waiter",
-                    },
-                )
+        role = _staff_role(user)
 
-            if _staff_role(user) == "waiter":
+        if role == "chef":
+            return redirect("kitchen:dashboard")
 
-                login(
-                    request,
-                    user,
-                )
+        if role == "waiter":
+            return redirect("accounts:waiter_dashboard")
 
-                messages.success(
-                    request,
-                    "Welcome to the IDDS Service Dashboard.",
-                )
+        if role in ("admin", "staff"):
+            return redirect("accounts:staff_dashboard")
 
-                return redirect(
-                    "accounts:waiter_dashboard"
-                )
-
-        messages.error(
-            request,
-            "This account is not registered as a Waiter.",
-        )
+        return redirect("accounts:dashboard")
 
     return render(
         request,
         "accounts/login.html",
-        {
-            "login_role": "waiter",
-        },
     )
+
+
+@login_required
+def customer_logout(request):
+    """
+    Log out the current user.
+    """
+    logout(request)
+
+    messages.success(
+        request,
+        "You have been logged out successfully.",
+    )
+
+    return redirect("accounts:login")
 
 
 # ============================================================
 # CUSTOMER DASHBOARD
 # ============================================================
 
+
 @login_required
 def dashboard(request):
     """
-    Customer account dashboard.
+    Customer dashboard.
 
-    The main customer experience remains table-based,
-    but authenticated customers can still see their
-    recent activity here.
+    Staff users are redirected to their appropriate dashboard.
     """
 
     role = _staff_role(request.user)
-
-    if role == "admin":
-        return redirect("/admin/")
 
     if role == "chef":
         return redirect("kitchen:dashboard")
@@ -384,55 +210,63 @@ def dashboard(request):
     if role == "waiter":
         return redirect("accounts:waiter_dashboard")
 
-    if role == "staff":
+    if role in ("admin", "staff"):
         return redirect("accounts:staff_dashboard")
+
+    tables = (
+        DiningTable.objects
+        .filter(is_available=True)
+        .order_by("table_number")
+    )
+
+    categories = (
+        MenuCategory.objects
+        .filter(is_active=True)
+        .prefetch_related("items")
+        .order_by("name")
+    )
+
+    menu_items = (
+        MenuItem.objects
+        .filter(is_available=True)
+        .select_related("category")
+        .order_by("category__name", "name")
+    )
+
+    active_session = (
+        DiningSession.objects
+        .filter(
+            customer=request.user,
+            status__in=["active", "occupied", "open"],
+        )
+        .select_related("table")
+        .order_by("-created_at")
+        .first()
+    )
 
     recent_orders = (
         Order.objects
-        .filter(
-            session__customer_name=request.user.username,
-        )
+        .filter(session__customer=request.user)
         .select_related(
             "session",
             "session__table",
         )
-        .prefetch_related(
-            "items",
-        )
-        .order_by(
-            "-created_at"
-        )[:5]
+        .prefetch_related("items")
+        .order_by("-created_at")[:10]
     )
 
-    active_order = (
-        Order.objects
-        .filter(
-            session__customer_name=request.user.username,
-            status__in=[
-                "new",
-                "accepted",
-                "preparing",
-                "ready",
-                "served",
-            ],
-        )
-        .select_related(
-            "session",
-            "session__table",
-        )
-        .order_by(
-            "-created_at"
-        )
-        .first()
-    )
+    context = {
+        "tables": tables,
+        "categories": categories,
+        "menu_items": menu_items,
+        "active_session": active_session,
+        "recent_orders": recent_orders,
+    }
 
     return render(
         request,
         "accounts/dashboard.html",
-        {
-            "recent_orders": recent_orders,
-            "active_order": active_order,
-        },
+        context,
     )
 
 
@@ -440,29 +274,29 @@ def dashboard(request):
 # WAITER DASHBOARD
 # ============================================================
 
-@login_required
+
 @login_required
 def waiter_dashboard(request):
     """
-    Simple waiter operational dashboard.
+    Waiter dashboard.
 
-    Waiters handle only:
-        - Food orders marked READY by the kitchen
-        - Water requests
-        - Cutlery requests
-        - Bill requests
+    A waiter can see:
+        - ready orders that nobody has claimed yet
+        - ready orders claimed by the current waiter
+        - waiter service requests that nobody has claimed yet
+        - service requests claimed by the current waiter
 
-    Chef food/custom requests are never shown here.
+    Orders claimed by another waiter are not shown.
     """
 
-    if _staff_role(request.user) != "waiter":
-
+    if not _is_waiter(request.user):
         messages.error(
             request,
-            "Waiter access is restricted to waiter accounts.",
+            "You are not authorized to access the waiter dashboard.",
         )
+        return redirect("accounts:dashboard")
 
-        return redirect("home")
+    waiter = request.user
 
     waiter_request_types = [
         "water",
@@ -471,7 +305,7 @@ def waiter_dashboard(request):
     ]
 
     # --------------------------------------------------------
-    # FOOD READY TO SERVE
+    # READY FOOD ORDERS
     # --------------------------------------------------------
 
     ready_orders = (
@@ -479,9 +313,14 @@ def waiter_dashboard(request):
         .filter(
             status="ready",
         )
+        .filter(
+            Q(assigned_waiter__isnull=True)
+            | Q(assigned_waiter=waiter)
+        )
         .select_related(
             "session",
             "session__table",
+            "assigned_waiter",
         )
         .prefetch_related(
             "items",
@@ -492,12 +331,7 @@ def waiter_dashboard(request):
     )
 
     # --------------------------------------------------------
-    # CUSTOMER REQUESTS
-    #
-    # Only waiter requests are included.
-    #
-    # requested = needs attention
-    # accepted  = waiter has accepted it
+    # WAITER SERVICE REQUESTS
     # --------------------------------------------------------
 
     waiter_requests = (
@@ -509,9 +343,14 @@ def waiter_dashboard(request):
                 "accepted",
             ],
         )
+        .filter(
+            Q(assigned_waiter__isnull=True)
+            | Q(assigned_waiter=waiter)
+        )
         .select_related(
             "session",
             "session__table",
+            "assigned_waiter",
         )
         .order_by(
             "status",
@@ -519,119 +358,146 @@ def waiter_dashboard(request):
         )
     )
 
-    new_request_count = waiter_requests.filter(
-        status="requested",
-    ).count()
+    context = {
+        "ready_orders": ready_orders,
+        "waiter_requests": waiter_requests,
+        "waiter": waiter,
+    }
 
     return render(
         request,
         "accounts/waiter_dashboard.html",
-        {
-            "ready_orders": ready_orders,
-            "waiter_requests": waiter_requests,
-            "new_request_count": new_request_count,
-        },
+        context,
     )
+# ============================================================
+# WAITER SERVICE REQUEST - ACCEPT
+# ============================================================
 
-# ============================================================
-# WAITER - ACCEPT SERVICE REQUEST
-# ============================================================
 
 @login_required
+@transaction.atomic
 def waiter_accept_request(request, request_id):
+    """
+    Accept a waiter service request.
 
-    if _staff_role(request.user) != "waiter":
+    Only:
+        Water
+        Cutlery
+        Bill
 
+    are handled by waiters.
+
+    A request can only be claimed once.
+    """
+
+    if not _is_waiter(request.user):
         messages.error(
             request,
-            "Only waiters can manage service requests.",
+            "You are not authorized to perform waiter actions.",
         )
-
-        return redirect("home")
+        return redirect("accounts:dashboard")
 
     if request.method != "POST":
-
-        return redirect(
-            "accounts:waiter_dashboard"
+        messages.error(
+            request,
+            "Invalid request method.",
         )
+        return redirect("accounts:waiter_dashboard")
 
     service_request = get_object_or_404(
-        ServiceRequest,
-        id=request_id,
-        request_type__in=["water", "cutlery", "bill"],
+        ServiceRequest.objects.select_for_update(),
+        pk=request_id,
     )
 
-    if service_request.status != "requested":
+    if service_request.request_type not in [
+        "water",
+        "cutlery",
+        "bill",
+    ]:
+        messages.error(
+            request,
+            "This request is not assigned to the waiter team.",
+        )
+        return redirect("accounts:waiter_dashboard")
 
+    if service_request.status != "requested":
         messages.warning(
             request,
-            "This service request is no longer waiting.",
+            "This service request has already been taken.",
         )
+        return redirect("accounts:waiter_dashboard")
 
-        return redirect(
-            "accounts:waiter_dashboard"
+    if service_request.assigned_waiter_id is not None:
+        messages.warning(
+            request,
+            "This service request has already been assigned to another waiter.",
         )
+        return redirect("accounts:waiter_dashboard")
 
     service_request.status = "accepted"
+    service_request.assigned_waiter = request.user
 
     service_request.save(
         update_fields=[
             "status",
+            "assigned_waiter",
         ]
     )
 
     messages.success(
         request,
-        (
-            f"Service request for Table "
-            f"{service_request.session.table.table_number} "
-            f"has been accepted."
-        ),
+        "Service request accepted successfully.",
     )
 
-    return redirect(
-        "accounts:waiter_dashboard"
-    )
+    return redirect("accounts:waiter_dashboard")
 
 
 # ============================================================
-# WAITER - COMPLETE SERVICE REQUEST
+# WAITER SERVICE REQUEST - COMPLETE
 # ============================================================
+
 
 @login_required
+@transaction.atomic
 def waiter_complete_request(request, request_id):
+    """
+    Complete a waiter service request.
 
-    if _staff_role(request.user) != "waiter":
+    Only the waiter who claimed the request may complete it.
+    """
 
+    if not _is_waiter(request.user):
         messages.error(
             request,
-            "Only waiters can manage service requests.",
+            "You are not authorized to perform waiter actions.",
         )
-
-        return redirect("home")
+        return redirect("accounts:dashboard")
 
     if request.method != "POST":
-
-        return redirect(
-            "accounts:waiter_dashboard"
+        messages.error(
+            request,
+            "Invalid request method.",
         )
+        return redirect("accounts:waiter_dashboard")
 
     service_request = get_object_or_404(
-        ServiceRequest,
-        id=request_id,
-        request_type__in=["water", "cutlery", "bill"],
+        ServiceRequest.objects.select_for_update(),
+        pk=request_id,
     )
 
-    if service_request.status != "accepted":
+    if service_request.assigned_waiter_id != request.user.id:
+        messages.error(
+            request,
+            "This service request is assigned to another waiter.",
+        )
+        return redirect("accounts:waiter_dashboard")
 
+    if service_request.status != "accepted":
         messages.warning(
             request,
-            "Only accepted requests can be completed.",
+            "This service request is not currently accepted.",
         )
-
-        return redirect(
-            "accounts:waiter_dashboard"
-        )
+        return redirect("accounts:waiter_dashboard")
 
     service_request.status = "completed"
     service_request.completed_at = timezone.now()
@@ -645,61 +511,153 @@ def waiter_complete_request(request, request_id):
 
     messages.success(
         request,
-        (
-            f"Service request for Table "
-            f"{service_request.session.table.table_number} "
-            f"has been completed."
-        ),
+        "Service request completed successfully.",
     )
 
-    return redirect(
-        "accounts:waiter_dashboard"
-    )
-
-
+    return redirect("accounts:waiter_dashboard")
 # ============================================================
-# WAITER - SERVE READY ORDER
+# WAITER FOOD ORDER - TAKE / CLAIM
 # ============================================================
+
 
 @login_required
-def waiter_serve_order(request, order_id):
+@transaction.atomic
+def waiter_take_order(request, order_id):
+    """
+    Claim a READY food order.
 
-    if _staff_role(request.user) != "waiter":
+    Only one waiter can claim a particular order.
 
+    READY
+       ↓
+    waiter2 clicks Take Order
+       ↓
+    assigned_waiter = waiter2
+       ↓
+    waiter2 can serve it
+    other waiters cannot claim it
+    """
+
+    if not _is_waiter(request.user):
         messages.error(
             request,
-            "Only waiters can serve customer orders.",
+            "You are not authorized to perform waiter actions.",
         )
-
-        return redirect("home")
+        return redirect("accounts:dashboard")
 
     if request.method != "POST":
-
+        messages.error(
+            request,
+            "Invalid request method.",
+        )
         return redirect(
             "accounts:waiter_dashboard"
         )
 
     order = get_object_or_404(
-        Order.objects.select_related(
-            "session",
-            "session__table",
-        ),
-        id=order_id,
+        Order.objects.select_for_update(),
+        pk=order_id,
     )
 
     if order.status != "ready":
+        messages.warning(
+            request,
+            "Only ready orders can be taken by a waiter.",
+        )
+        return redirect(
+            "accounts:waiter_dashboard"
+        )
 
+    if order.assigned_waiter_id is not None:
+
+        if order.assigned_waiter_id == request.user.id:
+            messages.info(
+                request,
+                "This order is already assigned to you.",
+            )
+        else:
+            messages.warning(
+                request,
+                "This order has already been taken by another waiter.",
+            )
+
+        return redirect(
+            "accounts:waiter_dashboard"
+        )
+
+    order.assigned_waiter = request.user
+
+    order.save(
+        update_fields=[
+            "assigned_waiter",
+            "updated_at",
+        ]
+    )
+
+    messages.success(
+        request,
+        f"Order #{order.id} has been assigned to you.",
+    )
+
+    return redirect(
+        "accounts:waiter_dashboard"
+    )
+# ============================================================
+# WAITER FOOD ORDER - SERVE
+# ============================================================
+
+
+@login_required
+@transaction.atomic
+def waiter_serve_order(request, order_id):
+    """
+    Serve a READY food order.
+
+    Only the waiter who claimed the order can serve it.
+    """
+
+    if not _is_waiter(request.user):
+        messages.error(
+            request,
+            "You are not authorized to perform waiter actions.",
+        )
+        return redirect("accounts:dashboard")
+
+    if request.method != "POST":
+        messages.error(
+            request,
+            "Invalid request method.",
+        )
+        return redirect(
+            "accounts:waiter_dashboard"
+        )
+
+    order = get_object_or_404(
+        Order.objects.select_for_update(),
+        pk=order_id,
+    )
+
+    if order.assigned_waiter_id != request.user.id:
+        messages.error(
+            request,
+            "This order is assigned to another waiter.",
+        )
+        return redirect(
+            "accounts:waiter_dashboard"
+        )
+
+    if order.status != "ready":
         messages.warning(
             request,
             "Only ready orders can be served.",
         )
-
         return redirect(
             "accounts:waiter_dashboard"
         )
 
     order.status = "served"
     order.served_at = timezone.now()
+    order.updated_at = timezone.now()
 
     order.save(
         update_fields=[
@@ -711,35 +669,28 @@ def waiter_serve_order(request, order_id):
 
     messages.success(
         request,
-        (
-            f"Order #{order.id} has been marked "
-            f"as served to Table "
-            f"{order.session.table.table_number}."
-        ),
+        f"Order #{order.id} has been served successfully.",
     )
 
     return redirect(
         "accounts:waiter_dashboard"
     )
-
-
 # ============================================================
-# GENERIC STAFF LANDING PAGE
+# STAFF DASHBOARD
 # ============================================================
+
 
 @login_required
 def staff_dashboard(request):
+    """
+    Basic staff dashboard.
 
-    if not request.user.is_staff:
+    Chef and waiter users are redirected to their dedicated
+    dashboards so they do not accidentally enter the generic
+    staff dashboard.
+    """
 
-        return redirect("home")
-
-    role = _staff_role(
-        request.user
-    )
-
-    if role == "admin":
-        return redirect("/admin/")
+    role = _staff_role(request.user)
 
     if role == "chef":
         return redirect("kitchen:dashboard")
@@ -747,21 +698,876 @@ def staff_dashboard(request):
     if role == "waiter":
         return redirect("accounts:waiter_dashboard")
 
+    if not request.user.is_staff:
+        messages.error(
+            request,
+            "You are not authorized to access the staff dashboard.",
+        )
+        return redirect("accounts:dashboard")
+
+    recent_orders = (
+        Order.objects
+        .select_related(
+            "session",
+            "session__table",
+            "assigned_chef",
+            "assigned_waiter",
+        )
+        .prefetch_related("items")
+        .order_by("-created_at")[:20]
+    )
+
+    recent_requests = (
+        ServiceRequest.objects
+        .select_related(
+            "session",
+            "session__table",
+            "assigned_waiter",
+        )
+        .order_by("-requested_at")[:20]
+    )
+
+    context = {
+        "recent_orders": recent_orders,
+        "recent_requests": recent_requests,
+    }
+
     return render(
         request,
         "accounts/staff_dashboard.html",
+        context,
+    )
+
+
+# ============================================================
+# CUSTOMER SESSION HELPERS
+# ============================================================
+
+
+def _get_customer_active_session(user):
+    """
+    Return the customer's latest active dining session.
+    """
+
+    return (
+        DiningSession.objects
+        .filter(
+            customer=user,
+            status__in=[
+                "active",
+                "occupied",
+                "open",
+            ],
+        )
+        .select_related("table")
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _get_customer_order_queryset(user):
+    """
+    Return orders belonging to the logged-in customer.
+    """
+
+    return (
+        Order.objects
+        .filter(
+            session__customer=user,
+        )
+        .select_related(
+            "session",
+            "session__table",
+            "assigned_chef",
+            "assigned_waiter",
+        )
+        .prefetch_related("items")
+        .order_by("-created_at")
+    )
+
+
+# ============================================================
+# CUSTOMER - TABLE / SESSION
+# ============================================================
+
+
+@login_required
+def start_session(request, table_id):
+    """
+    Start a dining session for the selected table.
+    """
+
+    if request.method != "POST":
+        messages.error(
+            request,
+            "Invalid request method.",
+        )
+        return redirect("accounts:dashboard")
+
+    table = get_object_or_404(
+        DiningTable,
+        pk=table_id,
+    )
+
+    existing_session = _get_customer_active_session(
+        request.user
+    )
+
+    if existing_session:
+        messages.warning(
+            request,
+            "You already have an active dining session.",
+        )
+        return redirect("accounts:dashboard")
+
+    if not table.is_available:
+        messages.error(
+            request,
+            "This table is currently unavailable.",
+        )
+        return redirect("accounts:dashboard")
+
+    session = DiningSession.objects.create(
+        customer=request.user,
+        table=table,
+        status="active",
+    )
+
+    table.is_available = False
+
+    table.save(
+        update_fields=[
+            "is_available",
+        ]
+    )
+
+    messages.success(
+        request,
+        f"Table {table.table_number} has been selected.",
+    )
+
+    return redirect(
+        "accounts:dashboard"
+    )
+
+
+# ============================================================
+# CUSTOMER - MENU
+# ============================================================
+
+
+@login_required
+def menu(request):
+    """
+    Display the digital restaurant menu.
+    """
+
+    categories = (
+        MenuCategory.objects
+        .filter(is_active=True)
+        .prefetch_related("items")
+        .order_by("name")
+    )
+
+    menu_items = (
+        MenuItem.objects
+        .filter(is_available=True)
+        .select_related("category")
+        .order_by(
+            "category__name",
+            "name",
+        )
+    )
+
+    context = {
+        "categories": categories,
+        "menu_items": menu_items,
+    }
+
+    return render(
+        request,
+        "restaurant/menu.html",
+        context,
+    )
+
+
+# ============================================================
+# CUSTOMER - ORDER LIST
+# ============================================================
+
+
+@login_required
+def my_orders(request):
+    """
+    Display the logged-in customer's orders.
+    """
+
+    orders = _get_customer_order_queryset(
+        request.user
+    )
+
+    context = {
+        "orders": orders,
+    }
+
+    return render(
+        request,
+        "orders/my_orders.html",
+        context,
+    )
+
+
+# ============================================================
+# CUSTOMER - ORDER DETAIL
+# ============================================================
+
+
+@login_required
+def order_detail(request, order_id):
+    """
+    Display one order belonging to the current customer.
+    """
+
+    order = get_object_or_404(
+        _get_customer_order_queryset(
+            request.user
+        ),
+        pk=order_id,
+    )
+
+    context = {
+        "order": order,
+    }
+
+    return render(
+        request,
+        "orders/order_detail.html",
+        context,
+    )
+# ============================================================
+# CUSTOMER - SERVICE REQUEST
+# ============================================================
+
+
+@login_required
+def create_service_request(request):
+    """
+    Create a service request from the customer side.
+
+    Routing:
+        water   -> waiter
+        cutlery -> waiter
+        bill    -> waiter
+        assistance / other -> kitchen / chef
+    """
+
+    if request.method != "POST":
+        messages.error(
+            request,
+            "Invalid request method.",
+        )
+        return redirect("accounts:dashboard")
+
+    session = _get_customer_active_session(
+        request.user
+    )
+
+    if not session:
+        messages.error(
+            request,
+            "You need an active dining session before requesting assistance.",
+        )
+        return redirect("accounts:dashboard")
+
+    request_type = (
+        request.POST.get(
+            "request_type",
+            "",
+        )
+        .strip()
+        .lower()
+    )
+
+    description = (
+        request.POST.get(
+            "description",
+            "",
+        )
+        .strip()
+    )
+
+    allowed_types = {
+        "water",
+        "cutlery",
+        "bill",
+        "assistance",
+        "other",
+    }
+
+    if request_type not in allowed_types:
+        messages.error(
+            request,
+            "Invalid service request type.",
+        )
+        return redirect("accounts:dashboard")
+
+    ServiceRequest.objects.create(
+        session=session,
+        request_type=request_type,
+        description=description,
+        status="requested",
+    )
+
+    if request_type in {
+        "water",
+        "cutlery",
+        "bill",
+    }:
+        messages.success(
+            request,
+            "Your request has been sent to the waiter.",
+        )
+    else:
+        messages.success(
+            request,
+            "Your request has been sent to the kitchen team.",
+        )
+
+    return redirect(
+        "accounts:dashboard"
+    )
+
+
+# ============================================================
+# CUSTOMER - CANCEL ORDER
+# ============================================================
+
+
+@login_required
+@transaction.atomic
+def cancel_order(request, order_id):
+    """
+    Cancel a customer's order when it is still cancellable.
+    """
+
+    if request.method != "POST":
+        messages.error(
+            request,
+            "Invalid request method.",
+        )
+        return redirect("accounts:my_orders")
+
+    order = get_object_or_404(
+        Order.objects.select_for_update(),
+        pk=order_id,
+        session__customer=request.user,
+    )
+
+    cancellable_statuses = [
+        "new",
+        "accepted",
+    ]
+
+    if order.status not in cancellable_statuses:
+        messages.error(
+            request,
+            "This order can no longer be cancelled.",
+        )
+        return redirect("accounts:my_orders")
+
+    order.status = "cancelled"
+    order.updated_at = timezone.now()
+
+    order.save(
+        update_fields=[
+            "status",
+            "updated_at",
+        ]
+    )
+
+    messages.success(
+        request,
+        f"Order #{order.id} has been cancelled.",
+    )
+
+    return redirect(
+        "accounts:my_orders"
+    )
+
+
+# ============================================================
+# CUSTOMER - TABLE AVAILABILITY
+# ============================================================
+
+
+@login_required
+def available_tables(request):
+    """
+    Show available dining tables.
+    """
+
+    tables = (
+        DiningTable.objects
+        .filter(is_available=True)
+        .order_by("table_number")
+    )
+
+    context = {
+        "tables": tables,
+    }
+
+    return render(
+        request,
+        "restaurant/tables.html",
+        context,
+    )
+
+
+# ============================================================
+# CUSTOMER - PROFILE
+# ============================================================
+
+
+@login_required
+def profile(request):
+    """
+    Basic customer profile page.
+    """
+
+    return render(
+        request,
+        "accounts/profile.html",
         {
-            "role": role,
+            "user": request.user,
         },
     )
 
 
 # ============================================================
-# LOGOUT
+# LEGACY / COMPATIBILITY FUNCTIONS
 # ============================================================
 
-def customer_logout(request):
 
-    logout(request)
+def chef_login(request):
+    """
+    Compatibility wrapper for older links.
 
-    return redirect("home")
+    The application now uses the unified login page.
+    """
+
+    return customer_login(request)
+
+
+def waiter_login(request):
+    """
+    Compatibility wrapper for older links.
+
+    The application now uses the unified login page.
+    """
+
+    return customer_login(request)
+
+
+# ============================================================
+# STAFF ROLE REDIRECT
+# ============================================================
+
+
+@login_required
+def role_dashboard(request):
+    """
+    Redirect the logged-in user to the correct dashboard.
+    """
+
+    role = _staff_role(request.user)
+
+    if role == "chef":
+        return redirect("kitchen:dashboard")
+
+    if role == "waiter":
+        return redirect("accounts:waiter_dashboard")
+
+    if role in ("admin", "staff"):
+        return redirect("accounts:staff_dashboard")
+
+    return redirect("accounts:dashboard")
+
+
+# ============================================================
+# HEALTH / STATUS
+# ============================================================
+
+
+@login_required
+def system_status(request):
+    """
+    Simple authenticated system status page.
+    """
+
+    context = {
+        "role": _staff_role(request.user),
+        "username": request.user.username,
+        "time": timezone.now(),
+    }
+
+    return render(
+        request,
+        "accounts/system_status.html",
+        context,
+    )
+
+
+# ============================================================
+# CUSTOMER ORDER TRACKING
+# ============================================================
+
+
+@login_required
+def track_order(request, order_id):
+    """
+    Track an order belonging to the logged-in customer.
+    """
+
+    order = get_object_or_404(
+        Order.objects
+        .select_related(
+            "session",
+            "session__table",
+            "assigned_chef",
+            "assigned_waiter",
+        )
+        .prefetch_related("items"),
+        pk=order_id,
+        session__customer=request.user,
+    )
+
+    context = {
+        "order": order,
+    }
+
+    return render(
+        request,
+        "orders/track_order.html",
+        context,
+    )
+
+
+# ============================================================
+# CUSTOMER SERVICE REQUEST LIST
+# ============================================================
+
+
+@login_required
+def my_service_requests(request):
+    """
+    Display the current customer's service requests.
+    """
+
+    active_requests = (
+        ServiceRequest.objects
+        .filter(
+            session__customer=request.user,
+        )
+        .select_related(
+            "session",
+            "session__table",
+            "assigned_waiter",
+        )
+        .order_by("-requested_at")
+    )
+
+    context = {
+        "service_requests": active_requests,
+    }
+
+    return render(
+        request,
+        "orders/service_requests.html",
+        context,
+    )
+
+
+# ============================================================
+# CUSTOMER ACTIVE SESSION
+# ============================================================
+
+
+@login_required
+def active_session(request):
+    """
+    Display the customer's current dining session.
+    """
+
+    session = _get_customer_active_session(
+        request.user
+    )
+
+    context = {
+        "session": session,
+    }
+
+    return render(
+        request,
+        "orders/active_session.html",
+        context,
+    )
+
+
+# ============================================================
+# CUSTOMER CLOSE SESSION
+# ============================================================
+
+
+@login_required
+@transaction.atomic
+def close_session(request, session_id):
+    """
+    Close a customer's dining session after payment/completion.
+    """
+
+    if request.method != "POST":
+        messages.error(
+            request,
+            "Invalid request method.",
+        )
+        return redirect("accounts:dashboard")
+
+    session = get_object_or_404(
+        DiningSession.objects.select_for_update(),
+        pk=session_id,
+        customer=request.user,
+    )
+
+    if session.status not in [
+        "active",
+        "occupied",
+        "open",
+    ]:
+        messages.warning(
+            request,
+            "This dining session is already closed.",
+        )
+        return redirect("accounts:dashboard")
+
+    session.status = "completed"
+
+    session.save(
+        update_fields=[
+            "status",
+        ]
+    )
+
+    if session.table:
+        session.table.is_available = True
+
+        session.table.save(
+            update_fields=[
+                "is_available",
+            ]
+        )
+
+    messages.success(
+        request,
+        "Dining session closed successfully.",
+    )
+
+    return redirect(
+        "accounts:dashboard"
+    )
+# ============================================================
+# GENERIC STAFF ORDER VIEW
+# ============================================================
+
+
+@login_required
+def staff_orders(request):
+    """
+    Staff order monitoring page.
+
+    This page is intended for administrative/staff users.
+    Chef and waiter users are redirected to their dedicated
+    dashboards.
+    """
+
+    role = _staff_role(request.user)
+
+    if role == "chef":
+        return redirect("kitchen:dashboard")
+
+    if role == "waiter":
+        return redirect("accounts:waiter_dashboard")
+
+    if not request.user.is_staff:
+        messages.error(
+            request,
+            "You are not authorized to access staff orders.",
+        )
+        return redirect("accounts:dashboard")
+
+    orders = (
+        Order.objects
+        .select_related(
+            "session",
+            "session__table",
+            "assigned_chef",
+            "assigned_waiter",
+        )
+        .prefetch_related("items")
+        .order_by("-created_at")
+    )
+
+    context = {
+        "orders": orders,
+    }
+
+    return render(
+        request,
+        "accounts/staff_orders.html",
+        context,
+    )
+
+
+# ============================================================
+# GENERIC STAFF SERVICE REQUEST VIEW
+# ============================================================
+
+
+@login_required
+def staff_requests(request):
+    """
+    Staff monitoring page for service requests.
+    """
+
+    role = _staff_role(request.user)
+
+    if role == "chef":
+        return redirect("kitchen:dashboard")
+
+    if role == "waiter":
+        return redirect("accounts:waiter_dashboard")
+
+    if not request.user.is_staff:
+        messages.error(
+            request,
+            "You are not authorized to access service requests.",
+        )
+        return redirect("accounts:dashboard")
+
+    service_requests = (
+        ServiceRequest.objects
+        .select_related(
+            "session",
+            "session__table",
+            "assigned_waiter",
+        )
+        .order_by("-requested_at")
+    )
+
+    context = {
+        "service_requests": service_requests,
+    }
+
+    return render(
+        request,
+        "accounts/staff_requests.html",
+        context,
+    )
+
+
+# ============================================================
+# CUSTOMER ORDER SUMMARY
+# ============================================================
+
+
+@login_required
+def order_summary(request, order_id):
+    """
+    Display a customer's order summary.
+    """
+
+    order = get_object_or_404(
+        Order.objects
+        .select_related(
+            "session",
+            "session__table",
+            "assigned_chef",
+            "assigned_waiter",
+        )
+        .prefetch_related("items"),
+        pk=order_id,
+        session__customer=request.user,
+    )
+
+    context = {
+        "order": order,
+    }
+
+    return render(
+        request,
+        "orders/order_summary.html",
+        context,
+    )
+
+
+# ============================================================
+# CUSTOMER FEEDBACK REDIRECT
+# ============================================================
+
+
+@login_required
+def feedback_redirect(request, order_id):
+    """
+    Redirect the customer to the feedback page for an order.
+
+    The actual feedback validation remains in the feedback app.
+    """
+
+    order = get_object_or_404(
+        Order.objects
+        .select_related(
+            "session",
+        ),
+        pk=order_id,
+        session__customer=request.user,
+    )
+
+    session_id = order.session_id
+
+    return redirect(
+        reverse(
+            "feedback:session_feedback",
+            kwargs={
+                "session_id": session_id,
+            },
+        )
+    )
+
+
+# ============================================================
+# DASHBOARD REDIRECTION
+# ============================================================
+
+
+@login_required
+def home(request):
+    """
+    Application home/dashboard redirect.
+    """
+
+    role = _staff_role(request.user)
+
+    if role == "chef":
+        return redirect("kitchen:dashboard")
+
+    if role == "waiter":
+        return redirect("accounts:waiter_dashboard")
+
+    if role in ("admin", "staff"):
+        return redirect("accounts:staff_dashboard")
+
+    return redirect("accounts:dashboard")
+
+
+# ============================================================
+# END OF ACCOUNTS VIEWS
+# ============================================================

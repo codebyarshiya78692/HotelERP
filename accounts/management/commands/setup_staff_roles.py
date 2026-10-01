@@ -5,8 +5,8 @@ from django.core.management.base import BaseCommand
 class Command(BaseCommand):
 
     help = (
-        "Create IDDS Chef and Waiter groups and reset "
-        "the standard demo staff accounts."
+        "Create IDDS Chef and Waiter groups and "
+        "multiple operational staff accounts."
     )
 
     def handle(
@@ -14,6 +14,10 @@ class Command(BaseCommand):
         *args,
         **options,
     ):
+
+        # =====================================================
+        # GROUPS
+        # =====================================================
 
         chef_group, _ = Group.objects.get_or_create(
             name="Chef",
@@ -24,129 +28,229 @@ class Command(BaseCommand):
         )
 
         # =====================================================
-        # CHEF
+        # CHEF ACCOUNTS
         # =====================================================
 
-        chef, chef_created = User.objects.get_or_create(
-            username="chef",
-        )
-
-        chef.set_password(
-            "Chef@12345",
-        )
-
-        chef.first_name = "Kitchen"
-        chef.last_name = "Chef"
-        chef.is_staff = True
-        chef.is_active = True
-
-        chef.save()
-
-        chef.groups.add(
-            chef_group,
-        )
-
-        # =====================================================
-        # WAITER
-        # =====================================================
-
-        waiter, waiter_created = User.objects.get_or_create(
-            username="waiter",
-        )
-
-        waiter.set_password(
-            "Waiter@12345",
-        )
-
-        waiter.first_name = "Restaurant"
-        waiter.last_name = "Waiter"
-        waiter.is_staff = True
-        waiter.is_active = True
-
-        waiter.save()
-
-        waiter.groups.add(
-            waiter_group,
-        )
+        chef_accounts = [
+            {
+                "username": "chef",
+                "password": "Chef@12345",
+                "first_name": "Kitchen",
+                "last_name": "Chef 1",
+            },
+            {
+                "username": "chef2",
+                "password": "Chef2@12345",
+                "first_name": "Kitchen",
+                "last_name": "Chef 2",
+            },
+            {
+                "username": "chef3",
+                "password": "Chef3@12345",
+                "first_name": "Kitchen",
+                "last_name": "Chef 3",
+            },
+        ]
 
         # =====================================================
-        # OUTPUT
+        # WAITER ACCOUNTS
+        # =====================================================
+
+        waiter_accounts = [
+            {
+                "username": "waiter",
+                "password": "Waiter@12345",
+                "first_name": "Restaurant",
+                "last_name": "Waiter 1",
+            },
+            {
+                "username": "waiter2",
+                "password": "Waiter2@12345",
+                "first_name": "Restaurant",
+                "last_name": "Waiter 2",
+            },
+            {
+                "username": "waiter3",
+                "password": "Waiter3@12345",
+                "first_name": "Restaurant",
+                "last_name": "Waiter 3",
+            },
+        ]
+
+        # =====================================================
+        # CREATE / UPDATE CHEFS
         # =====================================================
 
         self.stdout.write("")
 
         self.stdout.write(
             self.style.SUCCESS(
-                "IDDS STAFF ROLES READY",
+                "SETTING UP CHEF ACCOUNTS"
             )
         )
 
-        self.stdout.write("")
+        for data in chef_accounts:
 
-        self.stdout.write(
-            "Unified staff login:"
-        )
+            user, created = User.objects.get_or_create(
+                username=data["username"],
+            )
 
-        self.stdout.write(
-            "  URL: /accounts/login/"
-        )
+            user.set_password(
+                data["password"]
+            )
 
-        self.stdout.write("")
+            user.first_name = data["first_name"]
 
-        self.stdout.write(
-            "Chef login:"
-        )
+            user.last_name = data["last_name"]
 
-        self.stdout.write(
-            "  Username: chef"
-        )
+            user.is_staff = True
 
-        self.stdout.write(
-            "  Password: Chef@12345"
-        )
+            user.is_active = True
 
-        self.stdout.write(
-            "  Redirect: Kitchen Dashboard"
-        )
+            user.save()
 
-        self.stdout.write("")
+            user.groups.add(
+                chef_group
+            )
 
-        self.stdout.write(
-            "Waiter login:"
-        )
-
-        self.stdout.write(
-            "  Username: waiter"
-        )
-
-        self.stdout.write(
-            "  Password: Waiter@12345"
-        )
-
-        self.stdout.write(
-            "  Redirect: Waiter Dashboard"
-        )
-
-        self.stdout.write("")
-
-        if not chef_created:
+            action = (
+                "Created"
+                if created
+                else "Updated"
+            )
 
             self.stdout.write(
-                self.style.WARNING(
-                    "Existing 'chef' account found; "
-                    "its password has been reset to "
-                    "Chef@12345.",
-                )
+                f"  {action}: {user.username}"
             )
 
-        if not waiter_created:
+        # =====================================================
+        # CREATE / UPDATE WAITERS
+        # =====================================================
+
+        self.stdout.write("")
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "SETTING UP WAITER ACCOUNTS"
+            )
+        )
+
+        for data in waiter_accounts:
+
+            user, created = User.objects.get_or_create(
+                username=data["username"],
+            )
+
+            user.set_password(
+                data["password"]
+            )
+
+            user.first_name = data["first_name"]
+
+            user.last_name = data["last_name"]
+
+            user.is_staff = True
+
+            user.is_active = True
+
+            user.save()
+
+            user.groups.add(
+                waiter_group
+            )
+
+            action = (
+                "Created"
+                if created
+                else "Updated"
+            )
 
             self.stdout.write(
-                self.style.WARNING(
-                    "Existing 'waiter' account found; "
-                    "its password has been reset to "
-                    "Waiter@12345.",
-                )
+                f"  {action}: {user.username}"
             )
+
+        # =====================================================
+        # DISPLAY LOGIN INFORMATION
+        # =====================================================
+
+        self.stdout.write("")
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "=========================================="
+            )
+        )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "IDDS MULTI-STAFF LOGIN READY"
+            )
+        )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "=========================================="
+            )
+        )
+
+        self.stdout.write("")
+
+        self.stdout.write(
+            "CHEF ACCOUNTS:"
+        )
+
+        self.stdout.write(
+            "  chef   / Chef@12345"
+        )
+
+        self.stdout.write(
+            "  chef2  / Chef2@12345"
+        )
+
+        self.stdout.write(
+            "  chef3  / Chef3@12345"
+        )
+
+        self.stdout.write("")
+
+        self.stdout.write(
+            "WAITER ACCOUNTS:"
+        )
+
+        self.stdout.write(
+            "  waiter   / Waiter@12345"
+        )
+
+        self.stdout.write(
+            "  waiter2  / Waiter2@12345"
+        )
+
+        self.stdout.write(
+            "  waiter3  / Waiter3@12345"
+        )
+
+        self.stdout.write("")
+
+        self.stdout.write(
+            "All staff use:"
+        )
+
+        self.stdout.write(
+            "  /accounts/login/"
+        )
+
+        self.stdout.write("")
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Each staff member has an independent account."
+            )
+        )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Orders are assigned individually after acceptance."
+            )
+        )
 
         self.stdout.write("")

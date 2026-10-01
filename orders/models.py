@@ -88,6 +88,7 @@ class Order(models.Model):
     # Once one chef accepts it, the order is assigned to
     # that chef and disappears from the other chefs' work queue.
     #
+
     assigned_chef = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -96,6 +97,27 @@ class Order(models.Model):
         related_name="assigned_orders",
         limit_choices_to={
             "groups__name": "Chef",
+        },
+    )
+
+    # ---------------------------------------------------------
+    # WAITER ASSIGNMENT
+    # ---------------------------------------------------------
+    #
+    # Once the kitchen marks an order READY, a waiter can
+    # claim the order.
+    #
+    # Only the waiter who claims the order can serve it.
+    #
+
+    assigned_waiter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_food_orders",
+        limit_choices_to={
+            "groups__name": "Waiter",
         },
     )
 

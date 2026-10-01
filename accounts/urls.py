@@ -81,6 +81,12 @@ urlpatterns = [
         name="waiter_serve_order",
     ),
 
+    path(
+        "waiter/order/<int:order_id>/take/",
+        views.waiter_take_order,
+        name="waiter_take_order",
+    ),
+
     # ========================================================
     # STAFF
     # ========================================================

@@ -1,385 +1,522 @@
 {% extends "base.html" %}
 
 {% block title %}
-    Customer Dashboard | IDDS
+Waiter Dashboard | IDDS
 {% endblock %}
-
 
 {% block content %}
 
-<section class="dashboard-page">
+<section class="page-section">
 
-    <div class="page-container">
+    <div class="container">
 
-        <!-- =====================================================
+        <!-- ==================================================
              HEADER
-             ===================================================== -->
+             ================================================== -->
 
-        <div class="dashboard-heading">
+        <div class="page-heading reveal">
 
-            <div>
+            <p class="eyebrow">
+                SERVICE OPERATIONS
+            </p>
 
-                <p class="eyebrow">
-                    CUSTOMER AREA
-                </p>
+            <h1>
+                Waiter Dashboard
+            </h1>
 
-                <h1>
-                    Welcome, {{ user.username }} 👋
-                </h1>
+            <p>
+                Serve food prepared by the kitchen and handle
+                customer service requests.
+            </p>
 
-                <p>
-                    Manage your complete dining experience
-                    from one place.
-                </p>
+        </div>
+
+
+        <!-- ==================================================
+             SIMPLE SUMMARY
+             ================================================== -->
+
+        <div class="kitchen-summary-grid">
+
+            <div class="summary-card">
+
+                <span class="summary-label">
+                    READY TO SERVE
+                </span>
+
+                <strong>
+                    {{ ready_orders|length }}
+                </strong>
+
+                <small>
+                    Food from kitchen
+                </small>
 
             </div>
 
 
-            <div class="dashboard-heading-actions">
+            <div class="summary-card">
 
-                <a
-                    href="{% url 'table_selection' %}"
-                    class="btn btn-primary"
-                >
-                    Choose a Table
-                </a>
+                <span class="summary-label">
+                    CUSTOMER REQUESTS
+                </span>
+
+                <strong>
+                    {{ new_request_count }}
+                </strong>
+
+                <small>
+                    Need your attention
+                </small>
 
             </div>
 
         </div>
 
 
-        <!-- =====================================================
-             ACTIVE ORDER
-             ===================================================== -->
+        <!-- ==================================================
+             FOOD READY
+             ================================================== -->
 
-        {% if active_order %}
-
-            <div class="dashboard-card active-order-card">
-
-                <div class="card-header">
-
-                    <div>
-
-                        <span class="status-label">
-                            ACTIVE ORDER
-                        </span>
-
-                        <h2>
-                            Order #{{ active_order.id }}
-                        </h2>
-
-                    </div>
-
-
-                    <span class="order-status">
-                        {{ active_order.get_status_display }}
-                    </span>
-
-                </div>
-
-
-                <div class="active-order-info">
-
-                    <div>
-
-                        <span>
-                            Table
-                        </span>
-
-                        <strong>
-                            {{ active_order.session.table.table_number }}
-                        </strong>
-
-                    </div>
-
-
-                    <div>
-
-                        <span>
-                            Items
-                        </span>
-
-                        <strong>
-                            {{ active_order.items.count }}
-                        </strong>
-
-                    </div>
-
-
-                    <div>
-
-                        <span>
-                            Total
-                        </span>
-
-                        <strong>
-                            ₹{{ active_order.total_amount }}
-                        </strong>
-
-                    </div>
-
-                </div>
-
-
-                <div class="card-actions">
-
-                    <a
-                        href="{% url 'order_tracking' active_order.id %}"
-                        class="btn btn-secondary"
-                    >
-                        Track Order
-                    </a>
-
-
-                    <a
-                        href="{% url 'service_requests' %}"
-                        class="btn btn-secondary"
-                    >
-                        Request Service
-                    </a>
-
-                </div>
-
-            </div>
-
-        {% else %}
-
-            <div class="dashboard-card empty-order">
-
-                <div class="empty-icon">
-                    🍽️
-                </div>
-
-                <h2>
-                    No active order
-                </h2>
-
-                <p>
-                    Ready to order something delicious?
-                </p>
-
-
-                <a
-                    href="{% url 'table_selection' %}"
-                    class="btn btn-primary"
-                >
-                    Choose a Table
-                </a>
-
-            </div>
-
-        {% endif %}
-
-
-        <!-- =====================================================
-             RECENT ORDERS
-             ===================================================== -->
-
-        <div class="dashboard-section">
+        <section class="confirmation-card reveal">
 
             <div class="section-heading">
 
                 <div>
 
                     <p class="eyebrow">
-                        YOUR ACTIVITY
+                        KITCHEN → TABLE
                     </p>
 
                     <h2>
-                        Recent Orders
+                        Food Ready to Serve
                     </h2>
 
+                    <p>
+                        Only orders marked <strong>Ready</strong>
+                        by the Chef appear here.
+                    </p>
+
                 </div>
-
-
-                <a
-                    href="{% url 'orders:my_orders' %}"
-                >
-                    View all →
-                </a>
 
             </div>
 
 
-            {% if recent_orders %}
+            {% if ready_orders %}
 
-                <div class="orders-list">
+                <div class="report-table-wrapper">
 
-                    {% for order in recent_orders %}
+                    <table class="report-table">
 
-                        <div class="order-row">
+                        <thead>
 
-                            <div>
+                            <tr>
 
-                                <strong>
-                                    Order #{{ order.id }}
-                                </strong>
+                                <th>
+                                    Order
+                                </th>
 
-                                <span>
+                                <th>
                                     Table
-                                    {{ order.session.table.table_number }}
-                                </span>
+                                </th>
 
-                            </div>
+                                <th>
+                                    Customer
+                                </th>
+
+                                <th>
+                                    Items
+                                </th>
+
+                                <th>
+                                    Action
+                                </th>
+
+                            </tr>
+
+                        </thead>
 
 
-                            <div class="order-row-right">
+                        <tbody>
 
-                                <span class="order-status">
-                                    {{ order.get_status_display }}
-                                </span>
+                            {% for order in ready_orders %}
+
+                                <tr>
+
+                                    <td>
+                                        <strong>
+                                            #{{ order.id }}
+                                        </strong>
+                                    </td>
 
 
-                                <strong>
-                                    ₹{{ order.total_amount }}
-                                </strong>
+                                    <td>
+                                        Table
+                                        {{ order.session.table.table_number }}
+                                    </td>
 
 
-                                <a
-                                    href="{% url 'orders:order_detail' order.id %}"
-                                >
-                                    View
-                                </a>
+                                    <td>
+                                        {{ order.session.customer_name|default:"Guest" }}
+                                    </td>
 
-                            </div>
 
-                        </div>
+                                    <td>
 
-                    {% endfor %}
+                                        {% for item in order.items.all %}
+
+                                            {{ item.item_name }}
+                                            × {{ item.quantity }}
+
+                                            {% if not forloop.last %}
+                                                <br>
+                                            {% endif %}
+
+                                        {% endfor %}
+
+                                    </td>
+
+
+                                    <td>
+
+                                        {% if order.assigned_waiter_id %}
+
+                                            {% if order.assigned_waiter_id == waiter.id %}
+
+                                                <div class="assigned-label">
+                                                    Taken by {{ order.assigned_waiter.username }}
+                                                </div>
+
+                                                <form
+                                                    method="post"
+                                                    action="{% url 'accounts:waiter_serve_order' order.id %}"
+                                                >
+
+                                                    {% csrf_token %}
+
+                                                    <button
+                                                        type="submit"
+                                                        class="btn btn-primary"
+                                                    >
+                                                        Serve Food
+                                                    </button>
+
+                                                </form>
+
+                                            {% else %}
+
+                                                Taken by {{ order.assigned_waiter.username }}
+
+                                            {% endif %}
+
+                                        {% else %}
+
+                                            <form
+                                                method="post"
+                                                action="{% url 'accounts:waiter_take_order' order.id %}"
+                                            >
+
+                                                {% csrf_token %}
+
+                                                <button
+                                                    type="submit"
+                                                    class="btn btn-primary"
+                                                >
+                                                    Take Order
+                                                </button>
+
+                                            </form>
+
+                                        {% endif %}
+
+                                    </td>
+
+                                </tr>
+
+                            {% endfor %}
+
+                        </tbody>
+
+                    </table>
 
                 </div>
 
             {% else %}
 
-                <div class="dashboard-card empty-small">
+                <div class="empty-state">
+
+                    <h3>
+                        No food is waiting for service
+                    </h3>
 
                     <p>
-                        You haven't placed any orders yet.
+                        When the Chef marks an order as ready,
+                        it will appear here.
                     </p>
-
-
-                    <a
-                        href="{% url 'table_selection' %}"
-                    >
-                        Start your first order →
-                    </a>
 
                 </div>
 
             {% endif %}
 
-        </div>
+        </section>
 
 
-        <!-- =====================================================
-             CUSTOMER QUICK ACTIONS
-             ===================================================== -->
+        <!-- ==================================================
+             CUSTOMER REQUESTS
+             ================================================== -->
+
+        <section class="confirmation-card reveal">
+
+            <div class="section-heading">
+
+                <div>
+
+                    <p class="eyebrow">
+                        CUSTOMER SERVICE
+                    </p>
+
+                    <h2>
+                        Customer Requests
+                    </h2>
+
+                    <p>
+                        Only water, cutlery and bill requests
+                        are handled by the waiter.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            {% if waiter_requests %}
+
+                <div class="report-table-wrapper">
+
+                    <table class="report-table">
+
+                        <thead>
+
+                            <tr>
+
+                                <th>
+                                    Table
+                                </th>
+
+                                <th>
+                                    Request
+                                </th>
+
+                                <th>
+                                    Message
+                                </th>
+
+                                <th>
+                                    Time
+                                </th>
+
+                                <th>
+                                    Status
+                                </th>
+
+                                <th>
+                                    Action
+                                </th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody>
+
+                            {% for service_request in waiter_requests %}
+
+                                <tr>
+
+                                    <td>
+
+                                        <strong>
+                                            Table
+                                            {{ service_request.session.table.table_number }}
+                                        </strong>
+
+                                    </td>
+
+
+                                    <td>
+
+                                        <strong>
+                                            {{ service_request.get_request_type_display }}
+                                        </strong>
+
+                                    </td>
+
+
+                                    <td>
+                                        {{ service_request.message|default:"—" }}
+                                    </td>
+
+
+                                    <td>
+                                        {{ service_request.requested_at|date:"d M Y, h:i A" }}
+                                    </td>
+
+
+                                    <td>
+
+                                        {% if service_request.status == "requested" %}
+
+                                            <span class="request-status status-requested">
+                                                New
+                                            </span>
+
+                                        {% else %}
+
+                                            <span class="request-status status-accepted">
+                                                Accepted
+                                            </span>
+
+                                        {% endif %}
+
+                                    </td>
+
+
+                                    <td>
+
+                                        {% if service_request.status == "requested" %}
+
+                                            <form
+                                                method="post"
+                                                action="{% url 'accounts:waiter_accept_request' service_request.id %}"
+                                            >
+
+                                                {% csrf_token %}
+
+                                                <button
+                                                    type="submit"
+                                                    class="btn btn-primary"
+                                                >
+                                                    Accept
+                                                </button>
+
+                                            </form>
+
+                                        {% else %}
+
+                                            <form
+                                                method="post"
+                                                action="{% url 'accounts:waiter_complete_request' service_request.id %}"
+                                            >
+
+                                                {% csrf_token %}
+
+                                                <button
+                                                    type="submit"
+                                                    class="btn btn-secondary"
+                                                >
+                                                    Mark Done
+                                                </button>
+
+                                            </form>
+
+                                        {% endif %}
+
+                                    </td>
+
+                                </tr>
+
+                            {% endfor %}
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            {% else %}
+
+                <div class="empty-state">
+
+                    <h3>
+                        No customer requests
+                    </h3>
+
+                    <p>
+                        Water, cutlery and bill requests will
+                        appear here.
+                    </p>
+
+                </div>
+
+            {% endif %}
+
+        </section>
+
+
+        <!-- ==================================================
+             QUICK ACTIONS
+             ================================================== -->
 
         <div class="quick-actions">
 
-
             <a
-                href="{% url 'table_selection' %}"
+                href="{% url 'billing:dashboard' %}"
                 class="quick-card"
             >
 
                 <span>
-                    🪑
+                    💳
                 </span>
 
                 <strong>
-                    Choose a Table
+                    Billing
                 </strong>
 
                 <small>
-                    View available tables
+                    Generate and complete bills
                 </small>
 
             </a>
 
-
-            <a
-                href="{% url 'cart' %}"
-                class="quick-card"
-            >
-
-                <span>
-                    🛒
-                </span>
-
-                <strong>
-                    Your Cart
-                </strong>
-
-                <small>
-                    Review your selection
-                </small>
-
-            </a>
-
-
-            <a
-                href="{% url 'orders:my_orders' %}"
-                class="quick-card"
-            >
-
-                <span>
-                    📋
-                </span>
-
-                <strong>
-                    Order History
-                </strong>
-
-                <small>
-                    See your previous orders
-                </small>
-
-            </a>
-
-
-            <a
-                href="{% url 'service_requests' %}"
-                class="quick-card"
-            >
-
-                <span>
-                    🔔
-                </span>
-
-                <strong>
-                    Service Request
-                </strong>
-
-                <small>
-                    Ask the restaurant team
-                </small>
-
-            </a>
-
-        </div>
-
-
-        <!-- =====================================================
-             CUSTOMER NAVIGATION
-             ===================================================== -->
-
-        <div class="dashboard-footer-actions">
 
             <a
                 href="{% url 'home' %}"
-                class="text-link"
+                class="quick-card"
             >
-                ← Back to Home
+
+                <span>
+                    🏠
+                </span>
+
+                <strong>
+                    Home
+                </strong>
+
+                <small>
+                    Return to IDDS
+                </small>
+
             </a>
 
 
             <a
                 href="{% url 'accounts:logout' %}"
-                class="text-link"
+                class="quick-card"
             >
-                Logout
+
+                <span>
+                    ↪
+                </span>
+
+                <strong>
+                    Logout
+                </strong>
+
+                <small>
+                    Sign out of IDDS
+                </small>
+
             </a>
 
         </div>
@@ -387,5 +524,38 @@
     </div>
 
 </section>
+
+
+<style>
+
+    .request-status {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.35rem 0.7rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+
+
+    .status-requested {
+        background: rgba(201, 166, 107, 0.18);
+        color: var(--color-primary);
+    }
+
+
+    .status-accepted {
+        background: rgba(107, 79, 58, 0.12);
+        color: var(--color-primary);
+    }
+
+
+    .assigned-label {
+        margin-bottom: 0.45rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+    }
+
+</style>
 
 {% endblock %}
